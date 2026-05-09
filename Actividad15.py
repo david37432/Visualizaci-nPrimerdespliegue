@@ -6,6 +6,7 @@ Descripción:
 Aplicación Streamlit que permite analizar el desempeño de líneas de producción
 mediante indicadores de productividad (unidades/hora) y tasa de defectos.
 Responde la pregunta: ¿Qué líneas presentan mayor productividad y menor defectos?
+Incluye visualizaciones con Plotly, Altair y Matplotlib.
 """
 
 # ------------------------------------------------------------
@@ -16,6 +17,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import altair as alt
+import matplotlib.pyplot as plt
 from datetime import datetime, date
 
 # ------------------------------------------------------------
@@ -148,42 +150,27 @@ def formato_decimal(val, dec=2):
     return f"{val:,.{dec}f}"
 
 # ------------------------------------------------------------
-# 6. Visualizaciones (colores neutros, intensidades para múltiples)
+# 6. Visualizaciones existentes (Plotly, Altair)
 # ------------------------------------------------------------
 
 def grafico_evolucion_productividad(df, titulo):
-    """
-    Plotly: líneas de productividad diaria por línea.
-    Utiliza una paleta monocromática gris para diferenciar las líneas.
-    """
-    # Generar tantos tonos grises como líneas de producción haya
+    """Plotly: líneas de productividad diaria por línea (grises)."""
     num_lineas = df["linea_produccion"].nunique()
-    # Escala de grises desde oscuro (#333333) hasta más claro (#B0B0B0)
     grises = [f"#{int(51 + i*(160-51)/max(1,num_lineas-1)):02x}{int(51 + i*(160-51)/max(1,num_lineas-1)):02x}{int(51 + i*(160-51)/max(1,num_lineas-1)):02x}" 
               for i in range(num_lineas)]
-    # Alternativamente, usar px.colors.sequential.Greys (más simple)
-    # Pero para control exacto, usamos la lista generada.
     fig = px.line(df, x="fecha", y="productividad", color="linea_produccion",
-                  title=titulo, markers=False,
-                  color_discrete_sequence=grises)
+                  title=titulo, markers=False, color_discrete_sequence=grises)
     fig.update_traces(line=dict(width=2))
     fig.update_layout(
-        xaxis_title="Fecha",
-        yaxis_title="Productividad (unidades/hora)",
-        hovermode="x unified",
-        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_title="Fecha", yaxis_title="Productividad (unidades/hora)",
+        hovermode="x unified", margin=dict(l=20, r=20, t=40, b=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        font=dict(color="#333333")
+        plot_bgcolor="white", paper_bgcolor="white", font=dict(color="#333333")
     )
     return fig
 
 def grafico_barras_defectos(df, titulo):
-    """
-    Altair: barras de tasa de defectos promedio por línea.
-    Color neutro único para todas las barras.
-    """
+    """Altair: barras de tasa de defectos promedio por línea."""
     resumen = df.groupby("linea_produccion", as_index=False).agg(
         tasa_defectos=("tasa_defectos", "mean"),
         unidades_totales=("unidades_producidas", "sum")
@@ -191,19 +178,98 @@ def grafico_barras_defectos(df, titulo):
     chart = alt.Chart(resumen).mark_bar(color="#555555").encode(
         x=alt.X("linea_produccion:N", title="Línea de Producción", sort="-y"),
         y=alt.Y("tasa_defectos:Q", title="Tasa de Defectos Promedio", axis=alt.Axis(format="%")),
-        tooltip=[
-            alt.Tooltip("linea_produccion:N", title="Línea"),
-            alt.Tooltip("tasa_defectos:Q", format=".2%", title="Tasa de Defectos"),
-            alt.Tooltip("unidades_totales:Q", format=",")
-        ]
-    ).properties(
-        title=titulo,
-        width="container"
-    ).configure_title(fontSize=16, anchor="start")
+        tooltip=[alt.Tooltip("linea_produccion:N", title="Línea"),
+                 alt.Tooltip("tasa_defectos:Q", format=".2%", title="Tasa de Defectos"),
+                 alt.Tooltip("unidades_totales:Q", format=",")]
+    ).properties(title=titulo, width="container").configure_title(fontSize=16, anchor="start")
     return chart
 
 # ------------------------------------------------------------
-# 7. Interpretación analítica automática
+# 7. NUEVAS VISUALIZACIONES CON MATPLOTLIB (CORREGIDAS)
+# ------------------------------------------------------------
+
+def grafico_eficiencia_temporal(df, titulo):
+    """Matplotlib: evolución diaria de la eficiencia por línea (colores corregidos)."""
+    lineas = sorted(df["linea_produccion"].unique())
+    num_lineas = len(lineas)
+    # Generar tonos de gris como hex de 6 dígitos correctos
+    def color_gris(i):
+        componente = int(51 + i * (160 - 51) / max(1, num_lineas - 1))
+        return f"#{componente:02x}{componente:02x}{componente:02x}"
+    grises = [color_gris(i) for i in range(num_lineas)]
+    
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for i, linea in enumerate(lineas):
+        data = df[df["linea_produccion"] == linea].sort_values("fecha")
+        ax.plot(data["fecha"], data["eficiencia"], color=grises[i], linewidth=1.8, label=linea)
+    ax.set_title(titulo, fontsize=14, fontweight="bold", color="#333333")
+    ax.set_xlabel("Fecha", fontsize=12, color="#333333")
+    ax.set_ylabel("Eficiencia (0-1)", fontsize=12, color="#333333")
+    ax.legend()
+    ax.grid(alpha=0.3, linestyle="--")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+def grafico_dispersion_calidad(df, titulo):
+    """Matplotlib: dispersión productividad vs tasa de defectos."""
+    lineas = sorted(df["linea_produccion"].unique())
+    colores = ["#333333", "#555555", "#777777", "#999999"]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for i, linea in enumerate(lineas):
+        subset = df[df["linea_produccion"] == linea]
+        ax.scatter(subset["productividad"], subset["tasa_defectos"],
+                   color=colores[i % len(colores)], alpha=0.3, s=10, label=f"{linea} (día)")
+        if len(subset) > 1:
+            coef = np.polyfit(subset["productividad"], subset["tasa_defectos"], 1)
+            poly_eq = np.poly1d(coef)
+            x_range = np.linspace(subset["productividad"].min(), subset["productividad"].max(), 50)
+            ax.plot(x_range, poly_eq(x_range), color=colores[i % len(colores)], linewidth=2, linestyle="--")
+    ax.set_title(titulo, fontsize=14, fontweight="bold", color="#333333")
+    ax.set_xlabel("Productividad (unidades/hora)", fontsize=12, color="#333333")
+    ax.set_ylabel("Tasa de Defectos", fontsize=12, color="#333333")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.1%}'))
+    ax.legend()
+    ax.grid(alpha=0.3, linestyle="--")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+def grafico_barras_agrupadas_produccion(df, titulo):
+    """Matplotlib: barras agrupadas de unidades producidas vs defectuosas."""
+    resumen = df.groupby("linea_produccion").agg(
+        producidas=("unidades_producidas", "sum"),
+        defectuosas=("unidades_defectuosas", "sum")
+    ).reset_index()
+    x = np.arange(len(resumen))
+    ancho = 0.35
+    fig, ax = plt.subplots(figsize=(10, 5))
+    barras1 = ax.bar(x - ancho/2, resumen["producidas"], ancho, label="Unidades Producidas", color="#555555")
+    barras2 = ax.bar(x + ancho/2, resumen["defectuosas"], ancho, label="Unidades Defectuosas", color="#999999")
+    ax.set_title(titulo, fontsize=14, fontweight="bold", color="#333333")
+    ax.set_xlabel("Línea de Producción", fontsize=12, color="#333333")
+    ax.set_ylabel("Cantidad de Unidades", fontsize=12, color="#333333")
+    ax.set_xticks(x)
+    ax.set_xticklabels(resumen["linea_produccion"])
+    ax.legend()
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for bar in barras1:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 500, f'{int(height):,}',
+                ha='center', va='bottom', fontsize=9, color="#333333")
+    for bar in barras2:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 100, f'{int(height):,}',
+                ha='center', va='bottom', fontsize=9, color="#333333")
+    fig.tight_layout()
+    return fig
+
+# ------------------------------------------------------------
+# 8. Interpretaciones analíticas
 # ------------------------------------------------------------
 
 def insight_productividad(df):
@@ -224,8 +290,44 @@ def insight_defectos(df):
             f"con una tasa del {formato_porcentaje(calidad.iloc[-1])}. "
             "Se recomienda revisar los procedimientos de control de calidad en esa línea.")
 
+def insight_eficiencia(df):
+    eficiencia_media = df.groupby("linea_produccion")["eficiencia"].mean().sort_values(ascending=False)
+    mejor = eficiencia_media.index[0]
+    peor = eficiencia_media.index[-1]
+    return (f"La línea **{mejor}** alcanza la mayor eficiencia operativa promedio ({formato_porcentaje(eficiencia_media[mejor])}), "
+            f"mientras que **{peor}** se sitúa en {formato_porcentaje(eficiencia_media[peor])}. "
+            "La reducción de tiempos inactivos en las líneas menos eficientes podría incrementar la productividad global.")
+
+def insight_dispersion(df):
+    lineas_info = []
+    for lin in df["linea_produccion"].unique():
+        sub = df[df["linea_produccion"] == lin]
+        if len(sub) > 2:
+            corr = sub["productividad"].corr(sub["tasa_defectos"])
+            lineas_info.append((lin, corr))
+    if not lineas_info:
+        return "Datos insuficientes para calcular correlaciones."
+    lineas_info.sort(key=lambda x: x[1])
+    mejor = lineas_info[-1][0]
+    peor = lineas_info[0][0]
+    return (f"La línea **{mejor}** muestra la correlación más favorable (a mayor productividad, menor incremento de defectos), "
+            f"mientras que en **{peor}** la productividad alta puede estar asociada a un aumento de defectos. "
+            "Se recomienda revisar los procesos de calidad en las líneas con correlación negativa fuerte.")
+
+def insight_barras_agrupadas(df):
+    resumen = df.groupby("linea_produccion").agg(
+        producidas=("unidades_producidas", "sum"),
+        defectuosas=("unidades_defectuosas", "sum")
+    )
+    resumen["tasa"] = resumen["defectuosas"] / resumen["producidas"]
+    mejor = resumen["tasa"].idxmin()
+    peor = resumen["tasa"].idxmax()
+    return (f"**{mejor}** tiene la menor proporción de defectos sobre producción total ({formato_porcentaje(resumen.loc[mejor, 'tasa'])}), "
+            f"mientras que **{peor}** presenta {formato_porcentaje(resumen.loc[peor, 'tasa'])}. "
+            "Es crucial focalizar los esfuerzos de control de calidad donde el volumen de defectos es mayor.")
+
 # ------------------------------------------------------------
-# 8. Interfaz principal
+# 9. Interfaz principal
 # ------------------------------------------------------------
 
 def main():
@@ -247,7 +349,6 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-        # Carga/validación
         if archivo_csv is not None:
             df_crudo, error = cargar_csv(archivo_csv)
             if error:
@@ -271,7 +372,6 @@ def main():
 
         df = preprocesar(df)
 
-        # Filtros
         st.subheader("🔍 Filtros")
         lineas_disponibles = sorted(df["linea_produccion"].unique())
         lineas_seleccionadas = st.multiselect(
@@ -322,8 +422,15 @@ def main():
         return
 
     # ============ PESTAÑAS ============
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Resumen Ejecutivo", "📈 Productividad", "🔍 Calidad", "📋 Datos"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Resumen Ejecutivo",
+        "📈 Productividad",
+        "🔍 Calidad",
+        "🔬 Análisis Matplotlib",
+        "📋 Datos"
+    ])
 
+    # TAB 1: Resumen Ejecutivo
     with tab1:
         st.subheader("Indicadores Clave de Desempeño (KPIs)")
         total_unidades = df_filtrado["unidades_producidas"].sum()
@@ -348,19 +455,46 @@ def main():
         resumen["Defectos"] = resumen["Defectos"].apply(formato_porcentaje)
         st.dataframe(resumen, use_container_width=True, hide_index=True)
 
+    # TAB 2: Productividad
     with tab2:
         st.subheader("Evolución Diaria de la Productividad")
         fig_prod = grafico_evolucion_productividad(df_filtrado, "Productividad por Línea (unidades/hora)")
         st.plotly_chart(fig_prod, use_container_width=True)
         st.markdown(insight_productividad(df_filtrado))
 
+    # TAB 3: Calidad
     with tab3:
         st.subheader("Comparación de Tasa de Defectos entre Líneas")
         fig_def = grafico_barras_defectos(df_filtrado, "Tasa de Defectos Promedio por Línea de Producción")
         st.altair_chart(fig_def, use_container_width=True)
         st.markdown(insight_defectos(df_filtrado))
 
+    # TAB 4: Análisis Matplotlib
     with tab4:
+        st.subheader("🔬 Análisis Avanzado (Matplotlib)")
+        st.markdown("""
+        <div class="chart-description">
+        Visualizaciones complementarias que exploran la eficiencia, la relación productividad-defectos 
+        y la composición de la producción por línea.
+        </div>
+        """, unsafe_allow_html=True)
+
+        fig_eff = grafico_eficiencia_temporal(df_filtrado, "Eficiencia Operativa Diaria por Línea")
+        st.pyplot(fig_eff, use_container_width=True)
+        st.markdown(insight_eficiencia(df_filtrado))
+        st.markdown("---")
+
+        fig_scatter = grafico_dispersion_calidad(df_filtrado, "Relación Productividad vs. Tasa de Defectos")
+        st.pyplot(fig_scatter, use_container_width=True)
+        st.markdown(insight_dispersion(df_filtrado))
+        st.markdown("---")
+
+        fig_barras = grafico_barras_agrupadas_produccion(df_filtrado, "Unidades Producidas y Defectuosas por Línea")
+        st.pyplot(fig_barras, use_container_width=True)
+        st.markdown(insight_barras_agrupadas(df_filtrado))
+
+    # TAB 5: Datos
+    with tab5:
         st.subheader("Datos Filtrados")
         columnas_mostrar = ["fecha", "linea_produccion", "unidades_producidas",
                             "unidades_defectuosas", "productividad", "tasa_defectos", "eficiencia"]
